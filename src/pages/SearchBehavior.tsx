@@ -88,10 +88,13 @@ const SearchBehavior: React.FC<SearchBehaviorProps> = ({ days }) => {
                   <div className="mt-6 pt-4 border-t border-slate-700/50">
                        <div className="flex justify-between text-xs mb-1 font-bold text-slate-500 uppercase tracking-tighter">
                           <span>Доля запросов</span>
-                          <span>{((term.search_count / totalSearches) * 100).toFixed(1)}%</span>
+                          <span>{(totalSearches > 0 ? (term.search_count / totalSearches) * 100 : 0).toFixed(1)}%</span>
                        </div>
                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                           <div className="h-full bg-primary/60 rounded-full" style={{ width: `${(term.search_count / totalSearches) * 100}%` }}></div>
+                           <div
+                             className="h-full bg-primary/60 rounded-full"
+                             style={{ width: `${totalSearches > 0 ? (term.search_count / totalSearches) * 100 : 0}%` }}
+                           ></div>
                        </div>
                   </div>
               </div>

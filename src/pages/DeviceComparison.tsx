@@ -1,11 +1,24 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, PieChart, Pie } from 'recharts';
-import { Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  PieChart,
+  Pie,
+} from 'recharts';
+import { Loader2, Smartphone, Monitor, Layers3 } from 'lucide-react';
 import { fetchDeviceData } from '../data/dataService';
 
 interface DeviceComparisonProps {
   days: number;
 }
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
 
 const DeviceComparison: React.FC<DeviceComparisonProps> = ({ days }) => {
   const [loading, setLoading] = useState(true);
@@ -23,10 +36,24 @@ const DeviceComparison: React.FC<DeviceComparisonProps> = ({ days }) => {
         setLoading(false);
       }
     };
+
     loadData();
   }, [days]);
 
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b'];
+  const stats = useMemo(() => {
+    const totalSessions = deviceData.reduce((sum, item) => sum + item.sessions, 0);
+    const totalPageViews = deviceData.reduce((sum, item) => sum + item.page_views, 0);
+    const mobile = deviceData.find((item) => item.device_category === 'mobile');
+    const desktop = deviceData.find((item) => item.device_category === 'desktop');
+
+    return {
+      totalSessions,
+      totalPageViews,
+      mobileShare: mobile?.session_share || 0,
+      desktopShare: desktop?.session_share || 0,
+      avgDepth: totalSessions > 0 ? totalPageViews / totalSessions : 0,
+    };
+  }, [deviceData]);
 
   if (loading) {
     return (
@@ -39,84 +66,190 @@ const DeviceComparison: React.FC<DeviceComparisonProps> = ({ days }) => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="card p-8 bg-surface border border-slate-700/50 shadow-2xl">
-              <h3 className="text-xl font-bold mb-8 text-white">Распределение по устройствам</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                    <Pie
-                        data={deviceData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={5}
-                        dataKey="sessions"
-                        label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-                    >
-                        {deviceData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
-                        ))}
-                    </Pie>
-                    <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="card p-6 bg-surface border border-slate-700/50">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">Сессии</span>
+            <Smartphone className="w-5 h-5 text-primary" />
           </div>
+          <div className="text-3xl font-bold text-white">{stats.totalSessions.toLocaleString('ru-RU')}</div>
+          <p className="text-sm text-slate-400 mt-2">Всего визитов за период</p>
+        </div>
 
-          <div className="card p-8 bg-surface border border-slate-700/50 shadow-2xl">
-              <h3 className="text-xl font-bold mb-8 text-white">Конверсия по устройствам (%)</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={deviceData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip 
-                        cursor={{ fill: '#1e293b' }}
-                        content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                                const d = payload[0].payload;
-                                return (
-                                    <div className="bg-slate-900 border border-slate-700 p-4 rounded-lg shadow-2xl">
-                                        <p className="font-bold text-slate-200 mb-2">{d.name}</p>
-                                        <div className="space-y-1">
-                                            <p className="flex justify-between gap-4"><span className="text-slate-500">Добавление в корзину:</span> <span className="text-primary font-bold">{d.cartRate.toFixed(1)}%</span></p>
-                                            <p className="flex justify-between gap-4"><span className="text-slate-500">Покупка:</span> <span className="text-success font-bold font-mono">{d.conversion.toFixed(1)}%</span></p>
-                                        </div>
-                                    </div>
-                                );
-                            }
-                            return null;
-                        }}
-                    />
-                    <Bar dataKey="cartRate" name="В корзину" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="conversion" name="Покупка" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Legend iconType="circle" />
-                </BarChart>
-              </ResponsiveContainer>
+        <div className="card p-6 bg-surface border border-slate-700/50">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">Просмотры</span>
+            <Monitor className="w-5 h-5 text-success" />
           </div>
+          <div className="text-3xl font-bold text-white">{stats.totalPageViews.toLocaleString('ru-RU')}</div>
+          <p className="text-sm text-slate-400 mt-2">Суммарные page views</p>
+        </div>
+
+        <div className="card p-6 bg-surface border border-slate-700/50">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">Mobile share</span>
+            <Smartphone className="w-5 h-5 text-primary" />
+          </div>
+          <div className="text-3xl font-bold text-white">{stats.mobileShare.toFixed(1)}%</div>
+          <p className="text-sm text-slate-400 mt-2">Доля мобильных сессий</p>
+        </div>
+
+        <div className="card p-6 bg-surface border border-slate-700/50">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">Глубина</span>
+            <Layers3 className="w-5 h-5 text-warning" />
+          </div>
+          <div className="text-3xl font-bold text-white">{stats.avgDepth.toFixed(2)}</div>
+          <p className="text-sm text-slate-400 mt-2">Страниц на сессию</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card p-8 bg-surface border border-slate-700/50 shadow-2xl">
+          <h3 className="text-xl font-bold mb-8 text-white">Распределение сессий по устройствам</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={deviceData}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={100}
+                paddingAngle={4}
+                dataKey="sessions"
+                label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+              >
+                {deviceData.map((entry, index) => (
+                  <Cell key={`${entry.device_category}-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value: any) => Number(value ?? 0).toLocaleString('ru-RU')}
+                contentStyle={{
+                  background: '#0f172a',
+                  border: '1px solid rgba(148,163,184,0.2)',
+                  borderRadius: '12px',
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="card p-8 bg-surface border border-slate-700/50 shadow-2xl">
+          <h3 className="text-xl font-bold mb-8 text-white">Глубина просмотра по устройствам</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={deviceData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+              <XAxis dataKey="name" stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip
+                cursor={{ fill: '#1e293b' }}
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const item = payload[0].payload;
+                    return (
+                      <div className="bg-slate-900 border border-slate-700 p-4 rounded-lg shadow-2xl">
+                        <p className="font-bold text-slate-200 mb-2">{item.name}</p>
+                        <div className="space-y-1">
+                          <p className="flex justify-between gap-4">
+                            <span className="text-slate-500">Сессии:</span>
+                            <span className="text-white font-bold">{item.sessions.toLocaleString('ru-RU')}</span>
+                          </p>
+                          <p className="flex justify-between gap-4">
+                            <span className="text-slate-500">Просмотры:</span>
+                            <span className="text-primary font-bold">{item.page_views.toLocaleString('ru-RU')}</span>
+                          </p>
+                          <p className="flex justify-between gap-4">
+                            <span className="text-slate-500">Страниц на сессию:</span>
+                            <span className="text-success font-bold">{item.pages_per_session.toFixed(2)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Bar dataKey="pages_per_session" name="Страниц на сессию" fill="#10b981" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="card p-8 bg-surface border border-slate-700/50 shadow-2xl">
-          <h3 className="text-xl font-bold mb-8 text-white">Сравнение воронки: Мобильные vs Десктоп</h3>
-          <div className="space-y-8">
-             {deviceData.filter(d => ['Мобильные', 'Десктоп'].includes(d.name)).map((device, i) => (
-                 <div key={i} className="space-y-3">
-                     <div className="flex justify-between items-baseline mb-2">
-                         <div className="flex items-center gap-2">
-                            <span className={`w-3 h-3 rounded-full ${device.name === 'Десктоп' ? 'bg-success' : 'bg-primary'}`}></span>
-                            <span className="font-bold uppercase tracking-wider text-xs text-slate-400">{device.name}</span>
-                         </div>
-                         <span className="text-slate-500 text-xs">Конверсия: <span className="text-white font-bold">{device.conversion.toFixed(2)}%</span></span>
-                     </div>
-                     <div className="relative h-10 w-full bg-slate-800 rounded-lg overflow-hidden flex shadow-inner border border-slate-700/50">
-                        <div className="h-full bg-primary/40 flex items-center px-4 text-[11px] font-bold text-white border-r border-slate-900 transition-all truncate" style={{ width: '100%' }}>СЕССИИ ({device.sessions.toLocaleString()})</div>
-                        <div className="h-full bg-primary/60 flex items-center px-4 text-[11px] font-bold text-white border-r border-slate-900 transition-all truncate" style={{ width: `${Math.max(20, device.cartRate * 4)}%`, minWidth: '40px' }}>КОРЗИНА ({device.add_to_carts.toLocaleString()})</div>
-                        <div className="h-full bg-success/60 flex items-center px-4 text-[11px] font-bold text-white transition-all truncate" style={{ width: `${Math.max(10, device.conversion * 15)}%`, minWidth: '15px' }}>КУПИЛИ ({device.conversions.toLocaleString()})</div>
-                     </div>
-                 </div>
-             ))}
-          </div>
-          <p className="text-[10px] text-slate-500 mt-8 italic uppercase tracking-widest font-bold">* Данные из Яндекс.Метрики + CRM 05.ru</p>
+        <div className="flex items-center justify-between mb-8">
+          <h3 className="text-xl font-bold text-white">Профиль устройства</h3>
+          <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">Только реальные метрики Supabase</span>
+        </div>
+
+        <div className="space-y-6">
+          {deviceData.map((device, index) => (
+            <div key={device.device_category} className="rounded-2xl border border-slate-700/50 bg-slate-900/30 p-5">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                <div className="flex items-center gap-3">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                  />
+                  <div>
+                    <div className="text-white font-bold">{device.name}</div>
+                    <div className="text-xs uppercase tracking-widest text-slate-500">{device.session_share.toFixed(1)}% от всех сессий</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 md:gap-8">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Сессии</div>
+                    <div className="text-lg font-bold text-white">{device.sessions.toLocaleString('ru-RU')}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Просмотры</div>
+                    <div className="text-lg font-bold text-white">{device.page_views.toLocaleString('ru-RU')}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Глубина</div>
+                    <div className="text-lg font-bold text-success">{device.pages_per_session.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Доля сессий</span>
+                    <span>{device.session_share.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${device.session_share}%`,
+                        backgroundColor: COLORS[index % COLORS.length],
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Глубина просмотра</span>
+                    <span>{device.pages_per_session.toFixed(2)} стр./сессию</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-500/70"
+                      style={{ width: `${Math.min(device.pages_per_session * 40, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-[10px] text-slate-500 mt-8 italic uppercase tracking-widest font-bold">
+          * Конверсия и выручка по устройствам не показываются, потому что в исходных таблицах их нет верифицированно.
+        </p>
       </div>
     </div>
   );

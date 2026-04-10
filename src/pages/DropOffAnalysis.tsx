@@ -93,8 +93,8 @@ const DropOffAnalysis: React.FC<DropOffAnalysisProps> = ({ days }) => {
             <div key={page.page_path} className="space-y-1.5 group">
               <div className="flex justify-between items-end">
                 <div className="pr-4 max-w-[70%]">
-                  <div className="text-xs font-bold truncate" title={page.page_title}>
-                    {idx + 1}. {page.page_title}
+                  <div className="text-xs font-bold truncate" title={page.display_title}>
+                    {idx + 1}. {page.display_title}
                   </div>
                   <a href={"https://05.ru" + page.page_path} target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-500 font-mono truncate block hover:text-primary transition-colors" title={page.page_path}>{page.page_path}</a>
                 </div>
@@ -132,7 +132,7 @@ const DropOffAnalysis: React.FC<DropOffAnalysisProps> = ({ days }) => {
                   <Activity size={24} className="text-danger/40" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold truncate" title={page.page_title}>{page.page_title}</div>
+                  <div className="text-sm font-bold truncate" title={page.display_title}>{page.display_title}</div>
                   <a href={"https://05.ru" + page.page_path} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary/40 font-mono truncate mb-2 block hover:text-primary transition-colors">{page.page_path}</a>
                   <div className="flex gap-4">
                     <div className="flex flex-col">
@@ -170,7 +170,7 @@ const DropOffAnalysis: React.FC<DropOffAnalysisProps> = ({ days }) => {
                   <MousePointer2 size={24} className="text-success/40" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold truncate" title={page.page_title}>{page.page_title}</div>
+                  <div className="text-sm font-bold truncate" title={page.display_title}>{page.display_title}</div>
                   <a href={"https://05.ru" + page.page_path} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary/40 font-mono truncate mb-2 block hover:text-primary transition-colors">{page.page_path}</a>
                   <div className="flex gap-4">
                     <div className="flex flex-col">

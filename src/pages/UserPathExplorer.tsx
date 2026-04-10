@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { fetchSankeyData } from '../data/dataService';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { fetchPathNetworkData, fetchSankeyData, type PathNetworkEdge } from '../data/dataService';
 import { ResponsiveSankey } from '@nivo/sankey';
-import { Loader2, Info, TrendingDown, ArrowRight, ArrowLeftRight } from 'lucide-react';
+import { Loader2, Info, TrendingDown, ArrowRight, ArrowLeftRight, Network, Orbit, Route } from 'lucide-react';
 
 interface UserPathExplorerProps {
   days: number;
@@ -56,19 +56,32 @@ const NODE_COLORS: Record<string, string> = {
   '🏪 Другой домен': '#94a3b8',
 };
 
+const UserPathForceGraph = lazy(() => import('./UserPathForceGraph'));
+const UserPathD3ForceGraph = lazy(() => import('./UserPathD3ForceGraph'));
+
 const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
   const [loading, setLoading] = useState(true);
   const [rawData, setRawData] = useState<any[]>([]);
+  const [pathNetworkData, setPathNetworkData] = useState<PathNetworkEdge[]>([]);
   const [minTransitions, setMinTransitions] = useState(50);
+  const [graphType, setGraphType] = useState<'sankey' | 'force' | 'd3'>('sankey');
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const data: any[] = await fetchSankeyData(days);
-        setRawData(data);
-        if (data.length > 0) {
-          const sorted = [...data].sort((a, b) => (b.transitions || 0) - (a.transitions || 0));
+        const [sankey, network] = await Promise.all([
+          fetchSankeyData(days),
+          fetchPathNetworkData(days),
+        ]);
+
+        setRawData(sankey);
+        setPathNetworkData(network);
+
+        const thresholdSource = network.filter((edge) => !edge.is_self_loop);
+        const fallbackSource = thresholdSource.length > 0 ? thresholdSource : sankey;
+        if (fallbackSource.length > 0) {
+          const sorted = [...fallbackSource].sort((a, b) => (b.transitions || 0) - (a.transitions || 0));
           const idx = Math.min(15, sorted.length - 1);
           const threshold = sorted[idx]?.transitions || 10;
           setMinTransitions(Math.max(10, Math.floor(threshold / 10) * 10));
@@ -146,6 +159,11 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
     }).sort((a: any, b: any) => b.transitions - a.transitions);
   }, [rawData, minTransitions]);
 
+  const visibleNetworkEdges = useMemo(
+    () => pathNetworkData.filter((edge) => !edge.is_self_loop && edge.transitions >= minTransitions).length,
+    [minTransitions, pathNetworkData]
+  );
+
   // Статистика
   const stats = useMemo(() => {
     if (!rawData.length) return null;
@@ -183,8 +201,47 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
       <div>
         <h2 className="text-3xl font-black tracking-tight text-primary">КАРТА ПУТЕЙ ПОЛЬЗОВАТЕЛЕЙ</h2>
         <p className="text-primary/50 text-sm mt-1">
-          Потоки пользователей по разделам сайта. Толщина линии = количество переходов.
+          Потоки пользователей по разделам сайта. Можно смотреть как линейный Sankey или как силовой сетевой граф.
         </p>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setGraphType('sankey')}
+          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+            graphType === 'sankey'
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Route size={15} />
+          Sankey
+        </button>
+        <button
+          type="button"
+          onClick={() => setGraphType('force')}
+          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+            graphType === 'force'
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Network size={15} />
+          Force-Directed Graph
+        </button>
+        <button
+          type="button"
+          onClick={() => setGraphType('d3')}
+          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+            graphType === 'd3'
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Orbit size={15} />
+          D3 Force
+        </button>
       </div>
 
       {/* Статистика */}
@@ -233,15 +290,41 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
           className="flex-1 accent-primary"
         />
         <span className="text-sm font-bold text-primary w-12 text-right">{minTransitions}</span>
-        {sankeyData && (
+        {graphType === 'sankey' && sankeyData && (
           <span className="text-xs text-primary/40">
             {sankeyData.links.length} связей, {sankeyData.nodes.length} нод
           </span>
         )}
+        {(graphType === 'force' || graphType === 'd3') && (
+          <span className="text-xs text-primary/40">
+            {visibleNetworkEdges} связей в сети
+          </span>
+        )}
       </div>
 
-      {/* Sankey */}
-      {sankeyData && sankeyData.links.length > 0 ? (
+      {graphType === 'force' ? (
+        <Suspense
+          fallback={
+            <div className="card p-12 text-center border border-primary/10">
+              <Loader2 className="mx-auto mb-4 animate-spin text-primary" size={28} />
+              <p className="text-primary/40">Загрузка сетевого графа...</p>
+            </div>
+          }
+        >
+          <UserPathForceGraph days={days} edges={pathNetworkData} minTransitions={minTransitions} />
+        </Suspense>
+      ) : graphType === 'd3' ? (
+        <Suspense
+          fallback={
+            <div className="card p-12 text-center border border-primary/10">
+              <Loader2 className="mx-auto mb-4 animate-spin text-primary" size={28} />
+              <p className="text-primary/40">Загрузка D3 force-графа...</p>
+            </div>
+          }
+        >
+          <UserPathD3ForceGraph days={days} edges={pathNetworkData} minTransitions={minTransitions} />
+        </Suspense>
+      ) : sankeyData && sankeyData.links.length > 0 ? (
         <div className="card p-4 border border-primary/10" style={{ height: Math.max(500, sankeyData.nodes.length * 50) }}>
           <ResponsiveSankey
             data={sankeyData}
@@ -303,7 +386,7 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
       )}
 
       {/* Таблица основных переходов */}
-      {sankeyData && sankeyData.links.length > 0 && (
+      {graphType === 'sankey' && sankeyData && sankeyData.links.length > 0 && (
         <div className="card p-6 border border-primary/10">
           <h3 className="text-lg font-bold text-primary mb-4">Основные потоки (вперёд по воронке)</h3>
           <div className="overflow-x-auto">
@@ -343,7 +426,7 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
       )}
 
       {/* Обратные потоки */}
-      {backFlows.length > 0 && (
+      {graphType === 'sankey' && backFlows.length > 0 && (
         <div className="card p-6 border border-red-500/10">
           <h3 className="text-lg font-bold text-red-400 mb-1 flex items-center gap-2">
             <ArrowLeftRight size={18} /> Возвраты назад по воронке

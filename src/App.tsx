@@ -114,7 +114,7 @@ const App: React.FC = () => {
                       <span className="text-[10px] text-slate-500 uppercase block leading-none mb-1 text-right">Статус данных</span>
                       <span className="flex items-center gap-1.5 text-success text-sm font-medium">
                           <span className="w-2 h-2 bg-success rounded-full animate-pulse"></span>
-                          Supabase Live
+                          Данные обновлены
                       </span>
                    </div>
                </div>

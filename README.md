@@ -2,239 +2,258 @@
 
 Дашборд веб-аналитики маркетплейса [market.05.ru](https://market.05.ru) на данных Яндекс.Метрики.
 
-**Стек:** React 18 + Vite + TypeScript + Tailwind CSS + Recharts + Nivo  
-**Данные:** Яндекс.Метрика → Supabase (PostgreSQL) → Static JSON → Frontend  
-**Деплой:** `http://89.111.152.112:4173`
+Фронтенд написан на React + Vite и читает не статические JSON, а агрегированные таблицы Supabase. Сырые данные Метрики используются только как source-of-truth для пересчёта витрин и словарей человекочитаемых названий страниц/событий.
 
----
+## Текущая архитектура
 
-## Архитектура
-
+```text
+Яндекс.Метрика
+    ├─ Logs API / Reporting API
+    │
+    ▼
+Supabase raw layer
+    ├─ public.yandex_metrika_hits
+    └─ public.yandex_metrika_visits
+    │
+    ▼
+private.refresh_metrika_aggregates()
+    ├─ агрегаты metrika_*
+    ├─ lookup-таблицы metrika_*_labels
+    └─ очереди на ручную разметку
+    │
+    ▼
+Vite / React frontend
+    └─ src/data/dataService.ts -> Supabase publishable key -> графики и отчёты
 ```
-Яндекс.Метрика (счётчик 96470864)
-        │
-        ├─ Logs API (сырые хиты)      → fetch_metrika_fast.py
-        └─ Reporting API (агрегаты)    → fetch_metrika.py
-                │
-        Supabase (PostgreSQL)
-        ├─ yandex_metrika_hits    (сырые просмотры/события)
-        └─ yandex_metrika_visits  (агрегированные визиты)
-                │
-        export_metrika_json.py
-                │
-        public/data/*.json  (статические файлы)
-                │
-        React Frontend (fetch → визуализация)
-```
 
-**Почему статические JSON, а не прямой Supabase из браузера?**  
-Supabase service_role key нельзя использовать в клиентском коде — он даёт полный доступ к БД. Поэтому данные экспортируются в JSON через серверный скрипт.
+Ключевой принцип:
 
----
+- браузер читает только `metrika_*` таблицы
+- сырой слой `yandex_metrika_*` не должен быть доступен через publishable key
+- понятные русские названия страниц и событий подмешиваются на уровне data layer и агрегатов, а не вручную в компонентах
+
+Подробная схема агрегатов: [docs/metrika-aggregate-model.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/metrika-aggregate-model.md)
+
+## Стек
+
+- React 19
+- Vite 8
+- TypeScript
+- Tailwind CSS 4
+- Supabase JS
+- Recharts
+- `@nivo/sankey`
+- `react-force-graph-2d`
+- `d3-force`
+
+## Что есть в интерфейсе
+
+- `Обзор` — сессии, пользователи, просмотры, bounce rate, engagement
+- `Воронка продаж` — агрегированная воронка по шагам
+- `Пути пользователей` — три режима:
+  - Sankey
+  - Force-Directed Graph на `react-force-graph-2d`
+  - D3 Force Graph на `d3-force`
+- `Анализ уходов` — топ страниц и точки выхода
+- `Типы устройств`
+- `Источники трафика`
+- `Поиск на сайте`
 
 ## Структура проекта
 
-```
+```text
+.
+├── docs/
+│   ├── metrika-aggregate-model.md   # схема витрин, lookup-таблиц и refresh-пайплайна
+│   └── metrika-label-review.md      # текущая очередь на ручную разметку
+├── scripts/
+│   └── sync_metrika_labels.py       # автодоразметка URL по живому сайту
 ├── src/
-│   ├── App.tsx                    # Роутинг, сайдбар, выбор периода
+│   ├── App.tsx
 │   ├── data/
-│   │   ├── dataService.ts         # Загрузка JSON, агрегация, фильтрация по дням
-│   │   ├── supabaseClient.ts      # (legacy, не используется во фронте)
-│   │   └── mockGenerator.ts       # (legacy, для тестов)
-│   ├── pages/
-│   │   ├── SummaryDashboard.tsx    # Обзор: сессии, юзеры, просмотры
-│   │   ├── FunnelChart.tsx         # Воронка продаж (5 шагов)
-│   │   ├── UserPathExplorer.tsx    # 🗺️ Карта путей (Sankey, @nivo/sankey)
-│   │   ├── DropOffAnalysis.tsx     # Анализ уходов
-│   │   ├── DeviceComparison.tsx    # Устройства
-│   │   ├── TrafficSourceAnalysis.tsx # Источники трафика
-│   │   └── SearchBehavior.tsx      # Поиск на сайте
-│   ├── components/                 # Переиспользуемые UI-компоненты
-│   └── utils/                      # Утилиты
-├── public/
-│   └── data/                       # Статические JSON (генерируются скриптами)
-│       ├── metrika_daily_metrics.json
-│       ├── metrika_sankey.json     # Переходы между разделами для Sankey
-│       ├── metrika_funnel_daily.json
-│       ├── metrika_pages.json
-│       ├── metrika_traffic_sources.json
-│       ├── metrika_devices.json
-│       ├── metrika_ecommerce.json
-│       └── metrika_search_terms.json
-├── dist/                           # Продакшн-билд (npx vite build)
-├── index.html
+│   │   ├── dataService.ts           # загрузка metrika_* из Supabase и friendly labels
+│   │   ├── supabaseClient.ts        # frontend client через publishable key
+│   │   └── mockGenerator.ts         # legacy / не используется в production-flow
+│   └── pages/
+│       ├── SummaryDashboard.tsx
+│       ├── FunnelChart.tsx
+│       ├── UserPathExplorer.tsx
+│       ├── UserPathForceGraph.tsx
+│       ├── UserPathD3ForceGraph.tsx
+│       ├── DropOffAnalysis.tsx
+│       ├── DeviceComparison.tsx
+│       ├── TrafficSourceAnalysis.tsx
+│       └── SearchBehavior.tsx
 ├── package.json
-├── vite.config.ts
-├── tailwind.config.cjs
-├── tsconfig.json
-└── README.md                       # ← этот файл
+└── README.md
 ```
 
----
+## Переменные окружения
 
-## Скрипты синхронизации данных
+Минимальный набор для фронтенда:
 
-Все скрипты лежат в **`~/.openclaw/workspace/scripts/`** (воркспейс OpenClaw, НЕ в этом репозитории).
-
-| Скрипт | Что делает | Когда запускать |
-|--------|-----------|-----------------|
-| `fetch_metrika_fast.py` | Logs API → сырые хиты в `yandex_metrika_hits` | Ежедневно, после полуночи |
-| `fetch_metrika.py` | Reporting API → агрегаты в `yandex_metrika_visits` | Ежедневно, после полуночи |
-| `export_metrika_json.py` | Supabase → JSON в `public/data/` | После каждой синхронизации |
-
-### Полный цикл обновления данных
-
-```bash
-# 1. Загрузить сырые хиты за вчера (Logs API)
-NO_PROXY='*' python3 ~/.openclaw/workspace/scripts/fetch_metrika_fast.py
-
-# 2. Загрузить агрегаты (Reporting API)  
-NO_PROXY='*' python3 ~/.openclaw/workspace/scripts/fetch_metrika.py
-
-# 3. Экспортировать в JSON
-NO_PROXY='*' python3 ~/.openclaw/workspace/scripts/export_metrika_json.py
-
-# 4. Пересобрать фронтенд
-cd ~/projects/ga4-funnels && npx vite build
-
-# 5. Перезапустить сервер
-pkill -f "vite preview"; npx vite preview --host 0.0.0.0 --port 4173 &
+```env
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 ```
 
-> ⚠️ **`NO_PROXY='*'`** обязательно — на сервере стоит прокси (`HTTPS_PROXY`), который ломает скачивание данных из Logs API.
+Для служебных скриптов и админских операций в Supabase:
 
----
-
-## База данных (Supabase)
-
-**Проект:** `fdllflsajnruoenucgkg` (EU West 1)  
-**URL:** `https://fdllflsajnruoenucgkg.supabase.co`  
-**Pooler:** `aws-0-eu-west-1.pooler.supabase.com:5432`  
-**User:** `postgres.fdllflsajnruoenucgkg`
-
-### Таблицы
-
-#### `yandex_metrika_hits` (~120K записей за 7 дней)
-Сырые просмотры страниц и события из Logs API.
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `id` | bigint | PK, auto-increment |
-| `event_time` | timestamptz | Время события |
-| `client_id` | text | ID пользователя (cookie Метрики) |
-| `watch_id` | text | UNIQUE, ID хита |
-| `page_url` | text | URL страницы или `goal://...` (событие) |
-| `referer` | text | Откуда пришёл |
-| `utm_source` | text | UTM-метка |
-| `utm_medium` | text | UTM-метка |
-| `utm_campaign` | text | UTM-метка |
-
-**Индекс:** `idx_metrika_client_time` на `(client_id, event_time)` — для построения путей пользователей.
-
-**Формат событий в `page_url`:**
-- Обычные страницы: `https://market.05.ru/cat/...`
-- Цели (events): `goal://market.05.ru/view_item_nn`, `goal://market.05.ru/add_to_cart_nn` и т.д.
-
-#### `yandex_metrika_visits` (~150 записей за 7 дней)
-Агрегированные визиты из Reporting API.
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `visit_date` | date | Дата |
-| `start_url` | text | Первая страница визита |
-| `end_url` | text | Последняя страница визита |
-| `referer` | text | Источник |
-| `traffic_source` | text | Канал трафика (Direct, Search, Ad, Link) |
-| `source_engine` | text | Конкретный источник (yandex, google...) |
-| `device` | text | Тип устройства (Smartphones, PC) |
-| `visits` | integer | Кол-во визитов |
-| `pageviews` | integer | Кол-во просмотров |
-
----
-
-## API и ключи
-
-Все ключи хранятся в **`~/.openclaw/workspace/.env`**.
-
-### Яндекс.Метрика
-
-| Переменная | Описание |
-|-----------|----------|
-| `YANDEX_METRIKA_COUNTER_ID` | ID счётчика (`96470864`) |
-| `YANDEX_METRIKA_TOKEN` | OAuth-токен (срок: 1 год с 10.04.2026) |
-| `YANDEX_METRIKA_CLIENT_ID` | ID OAuth-приложения |
-| `YANDEX_METRIKA_CLIENT_SECRET` | Secret OAuth-приложения |
-
-**API endpoints:**
-- Список запросов: `GET https://api-metrika.yandex.net/management/v1/counter/{id}/logrequests`
-- Создание запроса: `POST https://api-metrika.yandex.net/management/v1/counter/{id}/logrequests?...`
-- Скачивание: `GET https://api-metrika.yandex.net/management/v1/counter/{id}/logrequest/{rid}/part/{n}/download`
-
-> ⚠️ **Важный баг:** Для **списка** запросов используется `/logrequests` (мн. число), а для **скачивания/очистки** — `/logrequest` (ед. число). Это не опечатка, это реальное поведение API Яндекса.
-
-**Обновление токена (когда истечёт):**
-```bash
-# 1. Получить код
-open "https://oauth.yandex.ru/authorize?response_type=code&client_id=$YANDEX_METRIKA_CLIENT_ID"
-
-# 2. Обменять код на токен
-curl -X POST https://oauth.yandex.ru/token \
-  -d "grant_type=authorization_code&code=КОД_ИЗ_БРАУЗЕРА&client_id=$YANDEX_METRIKA_CLIENT_ID&client_secret=$YANDEX_METRIKA_CLIENT_SECRET"
-
-# 3. Обновить YANDEX_METRIKA_TOKEN в .env
+```env
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_KEY=<service-role-key>
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 ```
 
-### Supabase
+Что используется где:
 
-| Переменная | Описание |
-|-----------|----------|
-| `SUPABASE_URL` | `https://fdllflsajnruoenucgkg.supabase.co` |
-| `SUPABASE_KEY` | Service role key (полный доступ, **НЕ использовать в браузере**) |
-| `SUPABASE_DB_PASSWORD` | Пароль для прямого PostgreSQL-подключения |
-| `SUPABASE_DB_HOST` | `aws-0-eu-west-1.pooler.supabase.com` |
+- [src/data/supabaseClient.ts](/Users/kadimagomedov/Documents/AnalyticsHub/src/data/supabaseClient.ts) читает `VITE_SUPABASE_URL` и `VITE_SUPABASE_PUBLISHABLE_KEY`
+- [scripts/sync_metrika_labels.py](/Users/kadimagomedov/Documents/AnalyticsHub/scripts/sync_metrika_labels.py) читает `.env` и для записи предпочитает service role key
 
----
-
-## Локальная разработка
+## Локальный запуск
 
 ```bash
-# Установка зависимостей
-cd ~/projects/ga4-funnels
 npm install
-
-# Dev-сервер (с hot reload)
-npx vite dev --host 0.0.0.0 --port 5173
-
-# Продакшн-билд
-npx vite build
-
-# Продакшн-превью
-npx vite preview --host 0.0.0.0 --port 4173
+npm run dev
 ```
 
-### Зависимости Python-скриптов
+По умолчанию Vite поднимет локальный сервер на `http://127.0.0.1:5173/`.
+
+Дополнительно:
 
 ```bash
-pip install psycopg2-binary python-dotenv requests --break-system-packages
+npm run build
+npm run preview
 ```
 
----
+## Как фронтенд получает данные
 
-## Библиотеки визуализации
+[src/data/dataService.ts](/Users/kadimagomedov/Documents/AnalyticsHub/src/data/dataService.ts) читает эти витрины:
 
-| Библиотека | Где используется | Зачем |
-|-----------|-----------------|-------|
-| [Recharts](https://recharts.org/) | Воронка, обзор, устройства, источники | Bar/Line/Pie/Scatter charts |
-| [@nivo/sankey](https://nivo.rocks/sankey/) | Карта путей пользователей | Sankey diagram (потоки переходов) |
-| [Lucide React](https://lucide.dev/) | Везде | Иконки |
-| [Framer Motion](https://www.framer.com/motion/) | Анимации | Плавные переходы |
+- `metrika_daily_metrics`
+- `metrika_funnel_daily`
+- `metrika_sankey`
+- `metrika_path_network`
+- `metrika_pages`
+- `metrika_devices`
+- `metrika_traffic_sources`
+- `metrika_search_terms`
+- `metrika_ecommerce`
 
----
+Внутри data layer уже есть:
 
-## Известные ограничения
+- агрегация по выбранному периоду
+- friendly titles для страниц
+- friendly labels для событий
+- fallback-логика для страниц без ручной подписи
+- нормализация данных для Sankey и network-графов
 
-1. **Нет session_id** — в Logs API (source=hits) нет поля session_id. Сессии определяются по `client_id` + gap > 30 минут.
-2. **Нет revenue** — Яндекс.Метрика не передаёт сумму заказа через Logs API (нужна интеграция e-commerce через DataLayer).
-3. **Нет поисковых запросов** — Reporting API не отдаёт `ym:pv:searchQuery`, нужен отдельный запрос через dimensions `ym:s:searchPhrase`.
-4. **Прокси на сервере** — `HTTPS_PROXY=http://127.0.0.1:10809` ломает скачивание из Logs API. Всегда используй `NO_PROXY='*'` при запуске скриптов.
-5. **Период данных** — в базе хранятся данные за последние 7 дней. Для расширения нужно запустить `fetch_metrika_fast.py --days N`.
+## Модель данных в Supabase
+
+### Сырой слой
+
+- `public.yandex_metrika_hits`
+- `public.yandex_metrika_visits`
+
+Эти таблицы используются только для пересчёта агрегатов и не должны быть открыты для publishable key.
+
+### Агрегаты для фронтенда
+
+- `public.metrika_daily_metrics`
+- `public.metrika_funnel_daily`
+- `public.metrika_sankey`
+- `public.metrika_path_network`
+- `public.metrika_pages`
+- `public.metrika_devices`
+- `public.metrika_traffic_sources`
+- `public.metrika_search_terms`
+- `public.metrika_ecommerce`
+
+### Lookup-слой для понятных названий
+
+- `public.metrika_page_labels`
+- `public.metrika_goal_labels`
+- `public.metrika_raw_event_labels`
+
+### Очереди на ручную разметку
+
+- `public.metrika_page_labels_review_queue`
+- `public.metrika_goal_labels_review_queue`
+- `public.metrika_raw_event_labels_review_queue`
+- `public.metrika_aux_goal_review_queue`
+
+Подробный состав полей описан в [docs/metrika-aggregate-model.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/metrika-aggregate-model.md).
+
+## Runbook обновления данных
+
+Этот репозиторий не содержит ETL-скрипты загрузки Метрики в raw layer. Предполагается, что внешняя джоба уже обновила:
+
+- `public.yandex_metrika_hits`
+- `public.yandex_metrika_visits`
+
+После этого нужно пересчитать витрины:
+
+```sql
+select private.refresh_metrika_aggregates();
+```
+
+Это обновит:
+
+- агрегированные `metrika_*` таблицы
+- витрины путей пользователей
+- словари подписей
+- review queues
+
+## Автодоразметка страниц
+
+Для популярных URL можно автоматически подтянуть заголовки с живого сайта:
+
+```bash
+python3 scripts/sync_metrika_labels.py --limit 200
+```
+
+Скрипт:
+
+- берёт unresolved URL из `metrika_page_labels_review_queue`
+- ходит на `https://market.05.ru`
+- пытается достать `title` / `h1`
+- обновляет `metrika_page_labels`
+- пересобирает локальный отчёт на ручную разметку в [docs/metrika-label-review.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/metrika-label-review.md)
+
+Важно:
+
+- для записи в Supabase скрипту нужен service role key
+- не все `btn://` и `form://` raw-события можно подписать автоматически, они остаются в review queue
+
+## Визуализации путей пользователей
+
+На экране [UserPathExplorer.tsx](/Users/kadimagomedov/Documents/AnalyticsHub/src/pages/UserPathExplorer.tsx) есть три режима:
+
+1. Sankey для линейного чтения потока
+2. `react-force-graph-2d` для быстрого canvas network view
+3. `d3-force` для отдельного SVG-графа с drag и физической раскладкой
+
+Оба force-графа используют одну и ту же витрину `public.metrika_path_network`.
+
+Особенности:
+
+- self-loop переходы не рисуются на основном полотне, чтобы не изолировать узлы вроде `Главная`
+- они показываются отдельным блоком как повторы шага
+- для связей используются уже нормализованные русские названия узлов
+
+## Ограничения и текущие нюансы
+
+1. `total_revenue` в `metrika_ecommerce` сейчас остаётся `0`, если выручка не загружается в raw-слой Метрики.
+2. Часть raw-событий вида `btn://...` и `form://...` требует ручной подписи.
+3. Фронтенд зависит от корректных RLS / grants в Supabase: publishable key должен читать только `metrika_*`.
+4. В проекте остаются legacy-файлы вроде `mockGenerator.ts`, но production-flow на них не завязан.
+5. `README` описывает только этот репозиторий и Supabase-side runbook; фактические ETL-джобы импорта из Метрики живут вне репозитория.
+
+## Полезные файлы
+
+- [README.md](/Users/kadimagomedov/Documents/AnalyticsHub/README.md)
+- [docs/metrika-aggregate-model.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/metrika-aggregate-model.md)
+- [docs/metrika-label-review.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/metrika-label-review.md)
+- [src/data/dataService.ts](/Users/kadimagomedov/Documents/AnalyticsHub/src/data/dataService.ts)
+- [src/pages/UserPathExplorer.tsx](/Users/kadimagomedov/Documents/AnalyticsHub/src/pages/UserPathExplorer.tsx)
+- [scripts/sync_metrika_labels.py](/Users/kadimagomedov/Documents/AnalyticsHub/scripts/sync_metrika_labels.py)

@@ -691,6 +691,102 @@ export const fetchPagePathNetworkData = async (days: number): Promise<PathNetwor
     .sort((a, b) => b.transitions - a.transitions);
 };
 
+const getPageFamily = (edge: Pick<PathNetworkEdge, 'source_kind' | 'target_kind' | 'source_path' | 'target_path'>, side: 'source' | 'target') => {
+  const kind = side === 'source' ? edge.source_kind : edge.target_kind;
+  const path = side === 'source' ? edge.source_path : edge.target_path;
+
+  if (kind === 'home') return 'Главная';
+  if (kind === 'search') return 'Поиск';
+  if (kind === 'product') return 'Товар';
+  if (kind === 'seller') return 'Продавец';
+  if (kind === 'cart') return 'Корзина';
+  if (kind === 'checkout') return 'Чекаут';
+  if (kind === 'account') return 'ЛК';
+  if (kind === 'auth') return 'ЛК';
+  if (kind === 'sale' || kind === 'promo') return 'Акции';
+
+  if (kind === 'catalog') {
+    if (path?.startsWith('/cat/hc/') || path?.startsWith('/cat/c/') || path?.startsWith('/cat/lc/')) {
+      return 'Категория';
+    }
+
+    if (path?.startsWith('/cat/mc/') || path?.startsWith('/cat/sc/')) {
+      return 'Подкатегория';
+    }
+
+    return 'Категория';
+  }
+
+  return 'Прочее';
+};
+
+const PAGE_FAMILY_ORDER: Record<string, number> = {
+  Главная: 1,
+  Поиск: 2,
+  Категория: 3,
+  Подкатегория: 4,
+  Товар: 5,
+  Продавец: 6,
+  Корзина: 7,
+  Чекаут: 8,
+  ЛК: 9,
+  Акции: 10,
+  Прочее: 11,
+};
+
+export const fetchGroupedPagePathNetworkData = async (days: number): Promise<PathNetworkEdge[]> => {
+  const data = await fetchPagePathNetworkData(days);
+
+  const aggregated = data.reduce((acc, curr) => {
+    const sourceFamily = getPageFamily(curr, 'source');
+    const targetFamily = getPageFamily(curr, 'target');
+    const key = `${sourceFamily}|||${targetFamily}`;
+
+    if (!acc[key]) {
+      acc[key] = {
+        source_id: sourceFamily,
+        source_label: sourceFamily,
+        source: sourceFamily,
+        source_group: sourceFamily,
+        source_order: PAGE_FAMILY_ORDER[sourceFamily] ?? 99,
+        target_id: targetFamily,
+        target_label: targetFamily,
+        target: targetFamily,
+        target_group: targetFamily,
+        target_order: PAGE_FAMILY_ORDER[targetFamily] ?? 99,
+        transitions: 0,
+        unique_sessions: 0,
+        unique_users: 0,
+        source_sessions: 0,
+        source_users: 0,
+        target_sessions: 0,
+        target_users: 0,
+        is_backward: false,
+        is_self_loop: false,
+      };
+    }
+
+    acc[key].transitions += curr.transitions || 0;
+    acc[key].unique_sessions += curr.unique_sessions || 0;
+    acc[key].unique_users += curr.unique_users || 0;
+    acc[key].source_sessions += curr.source_sessions || 0;
+    acc[key].source_users += curr.source_users || 0;
+    acc[key].target_sessions += curr.target_sessions || 0;
+    acc[key].target_users += curr.target_users || 0;
+    acc[key].is_backward = acc[key].source_order > acc[key].target_order;
+    acc[key].is_self_loop = sourceFamily === targetFamily;
+    return acc;
+  }, {} as Record<string, Omit<PathNetworkEdge, 'session_share_from' | 'user_share_from'>>);
+
+  return Object.values(aggregated)
+    .map((item) => ({
+      ...item,
+      session_share_from: item.source_sessions > 0 ? item.unique_sessions / item.source_sessions : 0,
+      user_share_from: item.source_users > 0 ? item.unique_users / item.source_users : 0,
+    }))
+    .sort((a, b) => b.transitions - a.transitions);
+};
+
 export const fetchEcommerceData = async (days: number) => {
   const data = await loadTable<EcommerceRow>('metrika_ecommerce', days);
 

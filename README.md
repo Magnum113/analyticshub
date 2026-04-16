@@ -34,6 +34,8 @@ Vite / React frontend
 
 Подробная схема агрегатов: [docs/metrika-aggregate-model.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/metrika-aggregate-model.md)
 
+Подробный end-to-end data flow по raw-слою, private views/functions, lookup-таблицам и витринам для графиков: [docs/user-path-data-flow.md](/Users/kadimagomedov/Documents/AnalyticsHub/docs/user-path-data-flow.md)
+
 ## Стек
 
 - React 19

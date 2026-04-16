@@ -97,6 +97,15 @@ const getLinkStroke = (edge: Pick<D3ForceLink, 'is_backward' | 'session_share_fr
   return '#64748b';
 };
 
+const getLinkStrokeWidth = (share: number) => {
+  if (share >= 0.5) return 11;
+  if (share >= 0.3) return 8.5;
+  if (share >= 0.15) return 6;
+  if (share >= 0.08) return 4;
+  if (share >= 0.03) return 2.8;
+  return 1.8;
+};
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const getOrderTargetX = (order: number, width: number, maxOrder: number) => {
@@ -251,7 +260,7 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
           is_backward: edge.is_backward,
           session_share_from: edge.session_share_from,
         }),
-        stroke_width: Math.max(1.5, Math.min(9, 1.5 + Math.sqrt(edge.transitions) / 4.5)),
+        stroke_width: getLinkStrokeWidth(edge.session_share_from),
         curvature: hasReversePair ? 32 : edge.is_backward ? 18 : 0,
       };
     });

@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
+  fetchGroupedPagePathNetworkData,
   fetchPagePathNetworkData,
   fetchPathNetworkData,
   fetchSankeyData,
@@ -65,29 +66,34 @@ const UserPathD3ForceGraph = lazy(() => import('./UserPathD3ForceGraph'));
 
 type GraphType = 'sankey' | 'force' | 'd3';
 type PathMode = 'journey' | 'pages';
+type PageGranularity = 'paths' | 'groups';
 
 const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
   const [loading, setLoading] = useState(true);
   const [rawData, setRawData] = useState<any[]>([]);
   const [journeyNetworkData, setJourneyNetworkData] = useState<PathNetworkEdge[]>([]);
   const [pageNetworkData, setPageNetworkData] = useState<PathNetworkEdge[]>([]);
+  const [groupedPageNetworkData, setGroupedPageNetworkData] = useState<PathNetworkEdge[]>([]);
   const [minTransitions, setMinTransitions] = useState(50);
   const [graphType, setGraphType] = useState<GraphType>('sankey');
   const [pathMode, setPathMode] = useState<PathMode>('journey');
+  const [pageGranularity, setPageGranularity] = useState<PageGranularity>('paths');
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [sankey, journeyNetwork, pageNetwork] = await Promise.all([
+        const [sankey, journeyNetwork, pageNetwork, groupedPageNetwork] = await Promise.all([
           fetchSankeyData(days),
           fetchPathNetworkData(days),
           fetchPagePathNetworkData(days),
+          fetchGroupedPagePathNetworkData(days),
         ]);
 
         setRawData(sankey);
         setJourneyNetworkData(journeyNetwork);
         setPageNetworkData(pageNetwork);
+        setGroupedPageNetworkData(groupedPageNetwork);
       } catch (error) {
         console.error('Error loading path data:', error);
       } finally {
@@ -103,7 +109,13 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
     }
   }, [graphType, pathMode]);
 
-  const activeNetworkData = pathMode === 'journey' ? journeyNetworkData : pageNetworkData;
+  const activeNetworkData = useMemo(() => {
+    if (pathMode === 'journey') {
+      return journeyNetworkData;
+    }
+
+    return pageGranularity === 'groups' ? groupedPageNetworkData : pageNetworkData;
+  }, [groupedPageNetworkData, journeyNetworkData, pageGranularity, pageNetworkData, pathMode]);
 
   useEffect(() => {
     const thresholdSource = activeNetworkData.filter((edge) => !edge.is_self_loop);
@@ -204,20 +216,24 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
   }, [backFlows, pathMode, rawData]);
 
   const pageModeSummary = useMemo(() => {
-    if (pathMode !== 'pages' || !pageNetworkData.length) return null;
+    if (pathMode !== 'pages' || !activeNetworkData.length) return null;
 
-    const filtered = pageNetworkData.filter((edge) => !edge.is_self_loop && edge.transitions >= minTransitions);
-    if (!filtered.length) return null;
-
-    const topEdge = filtered[0];
-    const nodeCount = new Set(filtered.flatMap((edge) => [edge.source_id, edge.target_id])).size;
+    const allEdges = activeNetworkData.filter((edge) => !edge.is_self_loop);
+    const visibleEdges = allEdges.filter((edge) => edge.transitions >= minTransitions);
+    const selfLoops = activeNetworkData.filter((edge) => edge.is_self_loop);
+    const topVisibleEdge = visibleEdges[0] ?? allEdges[0] ?? null;
 
     return {
-      transitions: filtered.reduce((sum, edge) => sum + edge.transitions, 0),
-      nodeCount,
-      topEdge,
+      allTransitions: allEdges.reduce((sum, edge) => sum + edge.transitions, 0),
+      allEdgesCount: allEdges.length,
+      visibleTransitions: visibleEdges.reduce((sum, edge) => sum + edge.transitions, 0),
+      visibleEdgesCount: visibleEdges.length,
+      hiddenSelfLoopTransitions: selfLoops.reduce((sum, edge) => sum + edge.transitions, 0),
+      hiddenSelfLoopCount: selfLoops.length,
+      nodeCount: new Set(activeNetworkData.flatMap((edge) => [edge.source_id, edge.target_id])).size,
+      topVisibleEdge,
     };
-  }, [minTransitions, pageNetworkData, pathMode]);
+  }, [activeNetworkData, minTransitions, pathMode]);
 
   if (loading) {
     return (
@@ -276,6 +292,33 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
           </>
         )}
       </div>
+
+      {pathMode === 'pages' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setPageGranularity('paths')}
+            className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+              pageGranularity === 'paths'
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            По URL
+          </button>
+          <button
+            type="button"
+            onClick={() => setPageGranularity('groups')}
+            className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+              pageGranularity === 'groups'
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            По группам страниц
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         {pathMode === 'journey' && (
@@ -352,21 +395,36 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
       {pageModeSummary && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="card p-4 border border-primary/10">
-            <div className="text-xs font-bold text-primary/40 uppercase tracking-wider mb-2">Page-only переходы</div>
-            <div className="text-2xl font-black text-primary">{pageModeSummary.transitions.toLocaleString('ru-RU')}</div>
-            <div className="text-xs text-primary/50 mt-1">только между страницами сайта за {days} дн.</div>
+            <div className="text-xs font-bold text-primary/40 uppercase tracking-wider mb-2">Все page-only переходы</div>
+            <div className="text-2xl font-black text-primary">{pageModeSummary.allTransitions.toLocaleString('ru-RU')}</div>
+            <div className="text-xs text-primary/50 mt-1">{pageModeSummary.allEdgesCount.toLocaleString('ru-RU')} межстраничных связей за {days} дн.</div>
           </div>
           <div className="card p-4 border border-slate-700/50">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Уникальные страницы</div>
-            <div className="text-2xl font-black text-white">{pageModeSummary.nodeCount.toLocaleString('ru-RU')}</div>
-            <div className="text-xs text-slate-400 mt-1">попали в граф после текущего порога</div>
-          </div>
-          <div className="card p-4 border border-green-500/20">
-            <div className="text-xs font-bold text-green-400/60 uppercase tracking-wider mb-2">Сильнейший путь</div>
-            <div className="text-base font-black text-white truncate">
-              {pageModeSummary.topEdge.source_label} → {pageModeSummary.topEdge.target_label}
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Видимо после фильтра</div>
+            <div className="text-2xl font-black text-white">{pageModeSummary.visibleTransitions.toLocaleString('ru-RU')}</div>
+            <div className="text-xs text-slate-400 mt-1">
+              {pageModeSummary.visibleEdgesCount.toLocaleString('ru-RU')} связей при пороге от {minTransitions}
             </div>
-            <div className="text-xs text-primary/50 mt-1">{pageModeSummary.topEdge.transitions.toLocaleString('ru-RU')} переходов</div>
+          </div>
+          <div className="card p-4 border border-amber-500/20">
+            <div className="text-xs font-bold text-amber-400/70 uppercase tracking-wider mb-2">Скрыто как self-loop</div>
+            <div className="text-2xl font-black text-amber-300">{pageModeSummary.hiddenSelfLoopTransitions.toLocaleString('ru-RU')}</div>
+            <div className="text-xs text-slate-400 mt-1">
+              {pageModeSummary.hiddenSelfLoopCount.toLocaleString('ru-RU')} self-loop связей, {pageModeSummary.nodeCount.toLocaleString('ru-RU')} узлов в текущей агрегации
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pageModeSummary?.topVisibleEdge && (
+        <div className="card p-4 border border-green-500/20">
+          <div className="text-xs font-bold text-green-400/60 uppercase tracking-wider mb-2">Сильнейший видимый путь</div>
+          <div className="text-base font-black text-white truncate">
+            {pageModeSummary.topVisibleEdge.source_label} → {pageModeSummary.topVisibleEdge.target_label}
+          </div>
+          <div className="text-xs text-primary/50 mt-1">
+            {pageModeSummary.topVisibleEdge.transitions.toLocaleString('ru-RU')} переходов, режим:{' '}
+            {pageGranularity === 'groups' ? 'по группам страниц' : 'по URL'}
           </div>
         </div>
       )}

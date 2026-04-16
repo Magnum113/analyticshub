@@ -54,6 +54,7 @@ Vite / React frontend
   - Sankey
   - Force-Directed Graph на `react-force-graph-2d`
   - D3 Force Graph на `d3-force`
+  - отдельный page-only режим без целей Метрики для Force-Directed Graph и D3 Force
 - `Анализ уходов` — топ страниц и точки выхода
 - `Типы устройств`
 - `Источники трафика`
@@ -134,6 +135,7 @@ npm run preview
 - `metrika_funnel_daily`
 - `metrika_sankey`
 - `metrika_path_network`
+- `metrika_page_path_network`
 - `metrika_pages`
 - `metrika_devices`
 - `metrika_traffic_sources`
@@ -233,7 +235,9 @@ python3 scripts/sync_metrika_labels.py --limit 200
 2. `react-force-graph-2d` для быстрого canvas network view
 3. `d3-force` для отдельного SVG-графа с drag и физической раскладкой
 
-Оба force-графа используют одну и ту же витрину `public.metrika_path_network`.
+В journey-режиме оба force-графа используют витрину `public.metrika_path_network`.
+
+Для режима `Только страницы` фронтенд использует отдельную витрину `public.metrika_page_path_network`, где последовательность строится только по реальным `http(s)` page hits без `goal://...` событий Яндекс.Метрики.
 
 Особенности:
 

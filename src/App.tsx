@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Filter, ArrowRightLeft, Users, Percent, Search, Menu, X, Calendar } from 'lucide-react';
+import { LayoutDashboard, Filter, ArrowRightLeft, Users, Percent, Search, Menu, X, Calendar, LogIn } from 'lucide-react';
 import FunnelChart from './pages/FunnelChart';
 import UserPathExplorer from './pages/UserPathExplorer';
 import DropOffAnalysis from './pages/DropOffAnalysis';
@@ -7,11 +7,13 @@ import DeviceComparison from './pages/DeviceComparison';
 import TrafficSourceAnalysis from './pages/TrafficSourceAnalysis';
 import SearchBehavior from './pages/SearchBehavior';
 import SummaryDashboard from './pages/SummaryDashboard';
+import AuthFlowAnalysis from './pages/AuthFlowAnalysis';
 
 const NAV_ITEMS = [
   { id: 'summary', label: 'Обзор', icon: LayoutDashboard },
   { id: 'funnel', label: 'Воронка продаж', icon: Filter },
   { id: 'paths', label: 'Пути пользователей', icon: ArrowRightLeft },
+  { id: 'auth', label: 'Авторизация / 05ID', icon: LogIn },
   { id: 'dropoff', label: 'Анализ уходов', icon: Percent },
   { id: 'device', label: 'Типы устройств', icon: Users },
   { id: 'source', label: 'Источники трафика', icon: Search },
@@ -34,6 +36,7 @@ const App: React.FC = () => {
       case 'summary': return <SummaryDashboard days={days} />;
       case 'funnel': return <FunnelChart days={days} />;
       case 'paths': return <UserPathExplorer days={days} />;
+      case 'auth': return <AuthFlowAnalysis days={days} />;
       case 'dropoff': return <DropOffAnalysis days={days} />;
       case 'device': return <DeviceComparison days={days} />;
       case 'source': return <TrafficSourceAnalysis days={days} />;

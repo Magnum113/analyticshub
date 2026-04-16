@@ -11,6 +11,7 @@
 | Воронка продаж | `public.metrika_funnel_daily` |
 | Пути пользователей | `public.metrika_sankey` |
 | Пути пользователей, force graph | `public.metrika_path_network` |
+| Пути пользователей, page-only force graph | `public.metrika_page_path_network` |
 | Анализ уходов | `public.metrika_pages` |
 | Типы устройств | `public.metrika_devices` |
 | Источники трафика | `public.metrika_traffic_sources` |
@@ -74,6 +75,37 @@ Publishable key должен читать только `metrika_*`.
 - `user_share_from`
 - `is_backward`
 - `is_self_loop`
+
+Источник: `private.metrika_journey_sessionized_v`, где последовательность включает и обычные страницы, и `goal://...` события Метрики, преобразованные в укрупнённые journey-узлы через `private.node_label(page_url)`.
+
+### `metrika_page_path_network`
+
+Агрегат для отдельного page-only force graph без целей Метрики. В последовательность попадают только реальные page hits:
+
+- `date`
+- `source_path`
+- `source_title`
+- `source_kind`
+- `source_group`
+- `source_order`
+- `target_path`
+- `target_title`
+- `target_kind`
+- `target_group`
+- `target_order`
+- `transitions`
+- `unique_sessions`
+- `unique_users`
+- `source_sessions`
+- `source_users`
+- `target_sessions`
+- `target_users`
+- `session_share_from`
+- `user_share_from`
+- `is_backward`
+- `is_self_loop`
+
+Источник: `private.metrika_core_sessionized_v` c фильтром `is_page = true`, поэтому `goal://...`, `btn://...` и `form://...` не участвуют. Для названий и групп страниц используются `metrika_page_labels` с fallback на `private.default_page_label`, `private.default_page_kind` и `private.default_page_group`. Query string уже нормализован на этапе `private.extract_path()`, поэтому `/search?q=iphone` и `/search?q=samsung` сводятся в один узел `/search`.
 
 ### `metrika_pages`
 

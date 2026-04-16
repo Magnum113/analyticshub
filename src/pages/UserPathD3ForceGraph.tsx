@@ -22,6 +22,8 @@ interface UserPathD3ForceGraphProps {
 
 interface D3ForceNode extends SimulationNodeDatum {
   id: string;
+  label: string;
+  path?: string;
   group: string;
   order: number;
   color: string;
@@ -36,6 +38,10 @@ interface D3ForceLink extends SimulationLinkDatum<D3ForceNode> {
   id: string;
   source: string | D3ForceNode;
   target: string | D3ForceNode;
+  source_label: string;
+  target_label: string;
+  source_path?: string;
+  target_path?: string;
   transitions: number;
   unique_sessions: number;
   unique_users: number;
@@ -54,10 +60,17 @@ interface D3ForceLink extends SimulationLinkDatum<D3ForceNode> {
 const GROUP_COLORS: Record<string, string> = {
   Вход: '#6366f1',
   Главная: '#3b82f6',
+  Навигация: '#3b82f6',
   'Поиск и фильтры': '#06b6d4',
   Каталог: '#8b5cf6',
   Товар: '#f59e0b',
   Чекаут: '#10b981',
+  Оформление: '#10b981',
+  Промо: '#ec4899',
+  Продавцы: '#14b8a6',
+  'Личный кабинет': '#f97316',
+  Авторизация: '#e11d48',
+  Информация: '#94a3b8',
   Прочее: '#64748b',
 };
 
@@ -95,7 +108,8 @@ const getOrderTargetX = (order: number, width: number, maxOrder: number) => {
   return GRAPH_PADDING + (order / maxOrder) * usableWidth;
 };
 
-const getEndpointLabel = (value: string | D3ForceNode) => (typeof value === 'string' ? value : value.id);
+const getEndpointLabel = (value: string | D3ForceNode) => (typeof value === 'string' ? value : value.label);
+const getEndpointKey = (value: string | D3ForceNode) => (typeof value === 'string' ? value : value.id);
 
 const getLinkGeometry = (link: D3ForceLink) => {
   const source = link.source as D3ForceNode;
@@ -111,7 +125,7 @@ const getLinkGeometry = (link: D3ForceLink) => {
   const normalY = dx / distance;
   const curvature = link.curvature;
   const direction = link.has_reverse_pair
-    ? getEndpointLabel(link.source) < getEndpointLabel(link.target)
+    ? getEndpointKey(link.source) < getEndpointKey(link.target)
       ? 1
       : -1
     : link.is_backward
@@ -170,13 +184,15 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
       return null;
     }
 
-    const reversePairs = new Set(filtered.map((edge) => `${edge.target}|||${edge.source}`));
+    const reversePairs = new Set(filtered.map((edge) => `${edge.target_id}|||${edge.source_id}`));
     const nodeMap = new Map<string, Omit<D3ForceNode, keyof SimulationNodeDatum>>();
 
     filtered.forEach((edge) => {
-      if (!nodeMap.has(edge.source)) {
-        nodeMap.set(edge.source, {
-          id: edge.source,
+      if (!nodeMap.has(edge.source_id)) {
+        nodeMap.set(edge.source_id, {
+          id: edge.source_id,
+          label: edge.source_label,
+          path: edge.source_path,
           group: edge.source_group,
           order: edge.source_order,
           color: GROUP_COLORS[edge.source_group] || GROUP_COLORS['Прочее'],
@@ -188,9 +204,11 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
         });
       }
 
-      if (!nodeMap.has(edge.target)) {
-        nodeMap.set(edge.target, {
-          id: edge.target,
+      if (!nodeMap.has(edge.target_id)) {
+        nodeMap.set(edge.target_id, {
+          id: edge.target_id,
+          label: edge.target_label,
+          path: edge.target_path,
           group: edge.target_group,
           order: edge.target_order,
           color: GROUP_COLORS[edge.target_group] || GROUP_COLORS['Прочее'],
@@ -202,8 +220,8 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
         });
       }
 
-      const sourceNode = nodeMap.get(edge.source)!;
-      const targetNode = nodeMap.get(edge.target)!;
+      const sourceNode = nodeMap.get(edge.source_id)!;
+      const targetNode = nodeMap.get(edge.target_id)!;
       sourceNode.outgoingTransitions += edge.transitions;
       targetNode.incomingTransitions += edge.transitions;
       sourceNode.sessionReach = Math.max(sourceNode.sessionReach, edge.source_sessions);
@@ -221,11 +239,13 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
       .sort((a, b) => a.order - b.order || b.sessionReach - a.sessionReach);
 
     const links: D3ForceLink[] = filtered.map((edge) => {
-      const hasReversePair = reversePairs.has(`${edge.source}|||${edge.target}`);
+      const hasReversePair = reversePairs.has(`${edge.source_id}|||${edge.target_id}`);
 
       return {
         ...edge,
-        id: `${edge.source}→${edge.target}`,
+        id: `${edge.source_id}→${edge.target_id}`,
+        source: edge.source_id,
+        target: edge.target_id,
         has_reverse_pair: hasReversePair,
         stroke: getLinkStroke({
           is_backward: edge.is_backward,
@@ -412,7 +432,8 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
             </>
           ) : activeNode ? (
             <>
-              <div className="text-sm font-black text-white truncate">{activeNode.id}</div>
+              <div className="text-sm font-black text-white truncate">{activeNode.label}</div>
+              {activeNode.path && <div className="text-[11px] text-slate-500 mt-1 truncate">{activeNode.path}</div>}
               <div className="text-xs text-slate-400 mt-1">
                 {formatNumber(activeNode.sessionReach)} сессий, {formatNumber(activeNode.outgoingTransitions)} исходящих переходов
               </div>
@@ -481,6 +502,7 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
                     >
                       <title>
                         {`${getEndpointLabel(link.source)} → ${getEndpointLabel(link.target)}\nПереходов: ${formatNumber(link.transitions)}\nСессий: ${formatNumber(link.unique_sessions)}\nПользователей: ${formatNumber(link.unique_users)}\nДоля от узла: ${formatPercent(link.session_share_from)}`}
+                        {(link.source_path || link.target_path) ? `\n${link.source_path || ''} → ${link.target_path || ''}` : ''}
                       </title>
                     </path>
 
@@ -544,7 +566,8 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
                       strokeWidth={isActive ? 3 : 2}
                     >
                       <title>
-                        {`${node.id}\nГруппа: ${node.group}\nСессий на узле: ${formatNumber(node.sessionReach)}\nВходящих переходов: ${formatNumber(node.incomingTransitions)}\nИсходящих переходов: ${formatNumber(node.outgoingTransitions)}`}
+                        {`${node.label}\nГруппа: ${node.group}\nСессий на узле: ${formatNumber(node.sessionReach)}\nВходящих переходов: ${formatNumber(node.incomingTransitions)}\nИсходящих переходов: ${formatNumber(node.outgoingTransitions)}`}
+                        {node.path ? `\n${node.path}` : ''}
                       </title>
                     </circle>
                     <text
@@ -557,7 +580,7 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
                       paintOrder="stroke"
                       className="pointer-events-none select-none font-semibold"
                     >
-                      {node.id}
+                      {node.label}
                     </text>
                   </g>
                 );
@@ -583,8 +606,8 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
             <tbody>
               {topEdges.map((edge) => (
                 <tr key={edge.id} className="border-b border-primary/5 hover:bg-primary/5">
-                  <td className="py-2 px-3">{getEndpointLabel(edge.source)}</td>
-                  <td className="py-2 px-3">{getEndpointLabel(edge.target)}</td>
+                  <td className="py-2 px-3">{edge.source_label}</td>
+                  <td className="py-2 px-3">{edge.target_label}</td>
                   <td className="py-2 px-3 text-right font-bold">{formatNumber(edge.transitions)}</td>
                   <td className="py-2 px-3 text-right text-white">{formatNumber(edge.unique_sessions)}</td>
                   <td className="py-2 px-3 text-right text-success">{formatPercent(edge.session_share_from)}</td>
@@ -601,11 +624,12 @@ const UserPathD3ForceGraph: React.FC<UserPathD3ForceGraphProps> = ({ days, edges
           <div className="space-y-3">
             {repeatFlows.map((edge) => (
               <div
-                key={`${edge.source}-${edge.target}-self`}
+                key={`${edge.source_label}-${edge.target_label}-self`}
                 className="flex items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/30 px-4 py-3"
               >
                 <div>
-                  <div className="font-semibold text-white">{edge.source}</div>
+                  <div className="font-semibold text-white">{edge.source_label}</div>
+                  {edge.source_path && <div className="text-[11px] text-slate-500">{edge.source_path}</div>}
                   <div className="text-xs text-slate-400">Пользователь остаётся на этом же шаге ещё раз</div>
                 </div>
                 <div className="text-right">

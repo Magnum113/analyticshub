@@ -11,6 +11,8 @@ interface UserPathForceGraphProps {
 
 interface ForceNode {
   id: string;
+  label: string;
+  path?: string;
   group: string;
   order: number;
   color: string;
@@ -23,6 +25,10 @@ interface ForceNode {
 interface ForceLink {
   source: string | ForceNode;
   target: string | ForceNode;
+  source_label: string;
+  target_label: string;
+  source_path?: string;
+  target_path?: string;
   transitions: number;
   unique_sessions: number;
   unique_users: number;
@@ -40,16 +46,23 @@ interface ForceLink {
 const GROUP_COLORS: Record<string, string> = {
   Вход: '#6366f1',
   Главная: '#3b82f6',
+  Навигация: '#3b82f6',
   'Поиск и фильтры': '#06b6d4',
   Каталог: '#8b5cf6',
   Товар: '#f59e0b',
   Чекаут: '#10b981',
+  Оформление: '#10b981',
+  Промо: '#ec4899',
+  Продавцы: '#14b8a6',
+  'Личный кабинет': '#f97316',
+  Авторизация: '#e11d48',
+  Информация: '#94a3b8',
   Прочее: '#64748b',
 };
 
 const formatPercent = (share: number) => `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
 
-const getEndpointLabel = (value: string | ForceNode) => (typeof value === 'string' ? value : value.id);
+const getEndpointLabel = (value: string | ForceNode) => (typeof value === 'string' ? value : value.label);
 
 const getLinkColor = (edge: Pick<ForceLink, 'is_backward' | 'is_self_loop' | 'session_share_from'>) => {
   if (edge.is_backward) {
@@ -90,13 +103,15 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
       return null;
     }
 
-    const reversePairs = new Set(filtered.map((edge) => `${edge.target}|||${edge.source}`));
+    const reversePairs = new Set(filtered.map((edge) => `${edge.target_id}|||${edge.source_id}`));
     const nodeMap = new Map<string, ForceNode>();
 
     filtered.forEach((edge) => {
-      if (!nodeMap.has(edge.source)) {
-        nodeMap.set(edge.source, {
-          id: edge.source,
+      if (!nodeMap.has(edge.source_id)) {
+        nodeMap.set(edge.source_id, {
+          id: edge.source_id,
+          label: edge.source_label,
+          path: edge.source_path,
           group: edge.source_group,
           order: edge.source_order,
           color: GROUP_COLORS[edge.source_group] || GROUP_COLORS['Прочее'],
@@ -107,9 +122,11 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
         });
       }
 
-      if (!nodeMap.has(edge.target)) {
-        nodeMap.set(edge.target, {
-          id: edge.target,
+      if (!nodeMap.has(edge.target_id)) {
+        nodeMap.set(edge.target_id, {
+          id: edge.target_id,
+          label: edge.target_label,
+          path: edge.target_path,
           group: edge.target_group,
           order: edge.target_order,
           color: GROUP_COLORS[edge.target_group] || GROUP_COLORS['Прочее'],
@@ -120,8 +137,8 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
         });
       }
 
-      const sourceNode = nodeMap.get(edge.source)!;
-      const targetNode = nodeMap.get(edge.target)!;
+      const sourceNode = nodeMap.get(edge.source_id)!;
+      const targetNode = nodeMap.get(edge.target_id)!;
       sourceNode.outgoingTransitions += edge.transitions;
       targetNode.incomingTransitions += edge.transitions;
       sourceNode.sessionReach = Math.max(sourceNode.sessionReach, edge.source_sessions);
@@ -131,9 +148,11 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
     });
 
     const links: ForceLink[] = filtered.map((edge) => {
-      const hasReversePair = reversePairs.has(`${edge.source}|||${edge.target}`);
+      const hasReversePair = reversePairs.has(`${edge.source_id}|||${edge.target_id}`);
       const link = {
         ...edge,
+        source: edge.source_id,
+        target: edge.target_id,
         unique_sessions: edge.unique_sessions,
         unique_users: edge.unique_users,
         has_reverse_pair: hasReversePair,
@@ -264,7 +283,7 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
             linkDirectionalParticleSpeed={0.004}
             nodeCanvasObjectMode={() => 'after'}
             nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-              const label = node.id as string;
+              const label = node.label as string;
               const fontSize = Math.max(10 / globalScale, 6);
               ctx.font = `${fontSize}px Inter, sans-serif`;
               const textWidth = ctx.measureText(label).width;
@@ -305,7 +324,8 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
             }}
             nodeLabel={(node: any) => `
               <div style="padding:10px 12px">
-                <div style="font-weight:700;margin-bottom:6px">${node.id}</div>
+                <div style="font-weight:700;margin-bottom:6px">${node.label}</div>
+                ${node.path ? `<div style="opacity:.7;margin-bottom:6px">${node.path}</div>` : ''}
                 <div>Группа: <b>${node.group}</b></div>
                 <div>Сессий на узле: <b>${Number(node.sessionReach || 0).toLocaleString('ru-RU')}</b></div>
                 <div>Входящих переходов: <b>${Number(node.incomingTransitions || 0).toLocaleString('ru-RU')}</b></div>
@@ -314,7 +334,8 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
             `}
             linkLabel={(link: any) => `
               <div style="padding:10px 12px">
-                <div style="font-weight:700;margin-bottom:6px">${link.source.id} → ${link.target.id}</div>
+                <div style="font-weight:700;margin-bottom:6px">${link.source.label} → ${link.target.label}</div>
+                ${(link.source.path || link.target.path) ? `<div style="opacity:.7;margin-bottom:6px">${link.source.path || ''} → ${link.target.path || ''}</div>` : ''}
                 <div>Переходов: <b>${Number(link.transitions || 0).toLocaleString('ru-RU')}</b></div>
                 <div>Сессий: <b>${Number(link.unique_sessions || 0).toLocaleString('ru-RU')}</b></div>
                 <div>Пользователей: <b>${Number(link.unique_users || 0).toLocaleString('ru-RU')}</b></div>
@@ -340,9 +361,9 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
             </thead>
             <tbody>
               {topEdges.map((edge) => (
-                <tr key={`${edge.source}-${edge.target}`} className="border-b border-primary/5 hover:bg-primary/5">
-                  <td className="py-2 px-3">{typeof edge.source === 'string' ? edge.source : edge.source.id}</td>
-                  <td className="py-2 px-3">{typeof edge.target === 'string' ? edge.target : edge.target.id}</td>
+                <tr key={`${edge.source_label}-${edge.target_label}-${edge.transitions}`} className="border-b border-primary/5 hover:bg-primary/5">
+                  <td className="py-2 px-3">{edge.source_label}</td>
+                  <td className="py-2 px-3">{edge.target_label}</td>
                   <td className="py-2 px-3 text-right font-bold">{edge.transitions.toLocaleString('ru-RU')}</td>
                   <td className="py-2 px-3 text-right text-white">{edge.unique_sessions.toLocaleString('ru-RU')}</td>
                   <td className="py-2 px-3 text-right text-success">{formatPercent(edge.session_share_from)}</td>
@@ -358,9 +379,10 @@ const UserPathForceGraph: React.FC<UserPathForceGraphProps> = ({ days, edges, mi
           <h3 className="text-lg font-bold text-white mb-4">Повторы на том же шаге</h3>
           <div className="space-y-3">
             {repeatFlows.map((edge) => (
-              <div key={`${edge.source}-${edge.target}-self`} className="flex items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/30 px-4 py-3">
+              <div key={`${edge.source_label}-${edge.target_label}-self`} className="flex items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/30 px-4 py-3">
                 <div>
-                  <div className="font-semibold text-white">{getEndpointLabel(edge.source)}</div>
+                  <div className="font-semibold text-white">{edge.source_label}</div>
+                  {edge.source_path && <div className="text-[11px] text-slate-500">{edge.source_path}</div>}
                   <div className="text-xs text-slate-400">
                     Пользователь остаётся на этом же шаге ещё раз
                   </div>

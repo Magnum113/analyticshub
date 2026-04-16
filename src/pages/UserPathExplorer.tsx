@@ -1,5 +1,10 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { fetchPathNetworkData, fetchSankeyData, type PathNetworkEdge } from '../data/dataService';
+import {
+  fetchPagePathNetworkData,
+  fetchPathNetworkData,
+  fetchSankeyData,
+  type PathNetworkEdge,
+} from '../data/dataService';
 import { ResponsiveSankey } from '@nivo/sankey';
 import { Loader2, Info, TrendingDown, ArrowRight, ArrowLeftRight, Network, Orbit, Route } from 'lucide-react';
 
@@ -7,7 +12,6 @@ interface UserPathExplorerProps {
   days: number;
 }
 
-// Порядок нод в воронке (слева направо)
 const NODE_ORDER: Record<string, number> = {
   '📱 Вход из приложения': 0,
   '🏠 Главная': 1,
@@ -59,35 +63,33 @@ const NODE_COLORS: Record<string, string> = {
 const UserPathForceGraph = lazy(() => import('./UserPathForceGraph'));
 const UserPathD3ForceGraph = lazy(() => import('./UserPathD3ForceGraph'));
 
+type GraphType = 'sankey' | 'force' | 'd3';
+type PathMode = 'journey' | 'pages';
+
 const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
   const [loading, setLoading] = useState(true);
   const [rawData, setRawData] = useState<any[]>([]);
-  const [pathNetworkData, setPathNetworkData] = useState<PathNetworkEdge[]>([]);
+  const [journeyNetworkData, setJourneyNetworkData] = useState<PathNetworkEdge[]>([]);
+  const [pageNetworkData, setPageNetworkData] = useState<PathNetworkEdge[]>([]);
   const [minTransitions, setMinTransitions] = useState(50);
-  const [graphType, setGraphType] = useState<'sankey' | 'force' | 'd3'>('sankey');
+  const [graphType, setGraphType] = useState<GraphType>('sankey');
+  const [pathMode, setPathMode] = useState<PathMode>('journey');
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [sankey, network] = await Promise.all([
+        const [sankey, journeyNetwork, pageNetwork] = await Promise.all([
           fetchSankeyData(days),
           fetchPathNetworkData(days),
+          fetchPagePathNetworkData(days),
         ]);
 
         setRawData(sankey);
-        setPathNetworkData(network);
-
-        const thresholdSource = network.filter((edge) => !edge.is_self_loop);
-        const fallbackSource = thresholdSource.length > 0 ? thresholdSource : sankey;
-        if (fallbackSource.length > 0) {
-          const sorted = [...fallbackSource].sort((a, b) => (b.transitions || 0) - (a.transitions || 0));
-          const idx = Math.min(15, sorted.length - 1);
-          const threshold = sorted[idx]?.transitions || 10;
-          setMinTransitions(Math.max(10, Math.floor(threshold / 10) * 10));
-        }
+        setJourneyNetworkData(journeyNetwork);
+        setPageNetworkData(pageNetwork);
       } catch (error) {
-        console.error('Error loading sankey data:', error);
+        console.error('Error loading path data:', error);
       } finally {
         setLoading(false);
       }
@@ -95,41 +97,53 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
     loadData();
   }, [days]);
 
-  // Sankey data — DAG only (направление: слева направо по NODE_ORDER)
+  useEffect(() => {
+    if (pathMode === 'pages' && graphType === 'sankey') {
+      setGraphType('force');
+    }
+  }, [graphType, pathMode]);
+
+  const activeNetworkData = pathMode === 'journey' ? journeyNetworkData : pageNetworkData;
+
+  useEffect(() => {
+    const thresholdSource = activeNetworkData.filter((edge) => !edge.is_self_loop);
+    const fallbackSource = pathMode === 'journey'
+      ? (thresholdSource.length > 0 ? thresholdSource : rawData)
+      : thresholdSource;
+
+    if (fallbackSource.length === 0) {
+      return;
+    }
+
+    const sorted = [...fallbackSource].sort((a: any, b: any) => (b.transitions || 0) - (a.transitions || 0));
+    const idx = Math.min(15, sorted.length - 1);
+    const threshold = sorted[idx]?.transitions || 10;
+    setMinTransitions(Math.max(10, Math.floor(threshold / 10) * 10));
+  }, [activeNetworkData, pathMode, rawData]);
+
   const sankeyData = useMemo(() => {
     const filtered = rawData.filter((r: any) => r.transitions >= minTransitions);
     if (filtered.length === 0) return null;
 
-    // Для каждой пары: разрешаем переход только от меньшего order к большему
-    // Если order одинаковый — пропускаем (одноуровневые переходы не показываем в Sankey)
     const validLinks: any[] = [];
     const seen = new Set<string>();
 
     filtered.forEach((r: any) => {
       const fromOrder = NODE_ORDER[r.from] ?? 5;
       const toOrder = NODE_ORDER[r.to] ?? 5;
-      
-      let source = r.from;
-      let target = r.to;
-      let value = r.transitions;
-      
-      if (fromOrder === toOrder) return; // skip same-level
-      
-      // Если переход "назад" (от большего order к меньшему), ищем пару и берём net flow
-      if (fromOrder > toOrder) {
-        // Разворачиваем: показываем как обратный поток от target к source
-        // Но Sankey не поддерживает обратные потоки, пропускаем
+
+      if (fromOrder === toOrder || fromOrder > toOrder) {
         return;
       }
-      
-      const key = `${source}→${target}`;
+
+      const key = `${r.from}→${r.to}`;
       if (seen.has(key)) return;
       seen.add(key);
-      
+
       validLinks.push({
-        source,
-        target,
-        value,
+        source: r.from,
+        target: r.to,
+        value: r.transitions,
         users: r.users,
       });
     });
@@ -137,56 +151,73 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
     if (validLinks.length === 0) return null;
 
     const nodeSet = new Set<string>();
-    validLinks.forEach(l => {
-      nodeSet.add(l.source);
-      nodeSet.add(l.target);
+    validLinks.forEach((link) => {
+      nodeSet.add(link.source);
+      nodeSet.add(link.target);
     });
 
     const nodes = Array.from(nodeSet)
       .sort((a, b) => (NODE_ORDER[a] ?? 5) - (NODE_ORDER[b] ?? 5))
-      .map(id => ({ id, nodeColor: NODE_COLORS[id] || '#64748b' }));
+      .map((id) => ({ id, nodeColor: NODE_COLORS[id] || '#64748b' }));
 
     return { nodes, links: validLinks };
-  }, [rawData, minTransitions]);
+  }, [minTransitions, rawData]);
 
-  // Обратные потоки (для таблицы)
   const backFlows = useMemo(() => {
     const filtered = rawData.filter((r: any) => r.transitions >= minTransitions);
-    return filtered.filter((r: any) => {
-      const fromOrder = NODE_ORDER[r.from] ?? 5;
-      const toOrder = NODE_ORDER[r.to] ?? 5;
-      return fromOrder > toOrder;
-    }).sort((a: any, b: any) => b.transitions - a.transitions);
-  }, [rawData, minTransitions]);
+    return filtered
+      .filter((r: any) => {
+        const fromOrder = NODE_ORDER[r.from] ?? 5;
+        const toOrder = NODE_ORDER[r.to] ?? 5;
+        return fromOrder > toOrder;
+      })
+      .sort((a: any, b: any) => b.transitions - a.transitions);
+  }, [minTransitions, rawData]);
 
   const visibleNetworkEdges = useMemo(
-    () => pathNetworkData.filter((edge) => !edge.is_self_loop && edge.transitions >= minTransitions).length,
-    [minTransitions, pathNetworkData]
+    () => activeNetworkData.filter((edge) => !edge.is_self_loop && edge.transitions >= minTransitions).length,
+    [activeNetworkData, minTransitions]
   );
 
-  // Статистика
   const stats = useMemo(() => {
-    if (!rawData.length) return null;
-    const total = rawData.reduce((s: number, r: any) => s + r.transitions, 0);
-    const toCart = rawData.filter((r: any) => 
-      r.to === '🛒 Корзина' || r.to === '🛒 Просмотр корзины'
-    ).reduce((s: number, r: any) => s + r.transitions, 0);
-    const fromProduct = rawData.filter((r: any) =>
-      r.from === '📦 Карточка товара' || r.from === '👁 Просмотр товара'
-    ).reduce((s: number, r: any) => s + r.transitions, 0);
-    const toCheckout = rawData.filter((r: any) =>
-      r.to === '💳 Оформление'
-    ).reduce((s: number, r: any) => s + r.transitions, 0);
+    if (!rawData.length || pathMode !== 'journey') return null;
+
+    const total = rawData.reduce((sum: number, row: any) => sum + row.transitions, 0);
+    const toCart = rawData
+      .filter((row: any) => row.to === '🛒 Корзина' || row.to === '🛒 Просмотр корзины')
+      .reduce((sum: number, row: any) => sum + row.transitions, 0);
+    const fromProduct = rawData
+      .filter((row: any) => row.from === '📦 Карточка товара' || row.from === '👁 Просмотр товара')
+      .reduce((sum: number, row: any) => sum + row.transitions, 0);
+    const toCheckout = rawData
+      .filter((row: any) => row.to === '💳 Оформление')
+      .reduce((sum: number, row: any) => sum + row.transitions, 0);
 
     return {
       total,
-      cartRate: fromProduct > 0 ? (toCart / fromProduct * 100) : 0,
+      cartRate: fromProduct > 0 ? (toCart / fromProduct) * 100 : 0,
       toCart,
       fromProduct,
       toCheckout,
-      backFlowCount: backFlows.reduce((s: number, r: any) => s + r.transitions, 0),
+      backFlowCount: backFlows.reduce((sum: number, row: any) => sum + row.transitions, 0),
     };
-  }, [rawData, backFlows]);
+  }, [backFlows, pathMode, rawData]);
+
+  const pageModeSummary = useMemo(() => {
+    if (pathMode !== 'pages' || !pageNetworkData.length) return null;
+
+    const filtered = pageNetworkData.filter((edge) => !edge.is_self_loop && edge.transitions >= minTransitions);
+    if (!filtered.length) return null;
+
+    const topEdge = filtered[0];
+    const nodeCount = new Set(filtered.flatMap((edge) => [edge.source_id, edge.target_id])).size;
+
+    return {
+      transitions: filtered.reduce((sum, edge) => sum + edge.transitions, 0),
+      nodeCount,
+      topEdge,
+    };
+  }, [minTransitions, pageNetworkData, pathMode]);
 
   if (loading) {
     return (
@@ -201,23 +232,66 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
       <div>
         <h2 className="text-3xl font-black tracking-tight text-primary">КАРТА ПУТЕЙ ПОЛЬЗОВАТЕЛЕЙ</h2>
         <p className="text-primary/50 text-sm mt-1">
-          Потоки пользователей по разделам сайта. Можно смотреть как линейный Sankey или как силовой сетевой граф.
+          Два режима анализа: текущий journey-flow со смешением страниц и целей Метрики, и новый page-only граф только по реальным страницам сайта.
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => setGraphType('sankey')}
+          onClick={() => setPathMode('journey')}
           className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
-            graphType === 'sankey'
+            pathMode === 'journey'
               ? 'border-primary/40 bg-primary/10 text-primary'
               : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
           }`}
         >
           <Route size={15} />
-          Sankey
+          Journey + goals
         </button>
+        <button
+          type="button"
+          onClick={() => setPathMode('pages')}
+          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+            pathMode === 'pages'
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Network size={15} />
+          Только страницы
+        </button>
+      </div>
+
+      <div className="rounded-2xl border border-slate-700/50 bg-slate-900/30 p-4 text-sm text-slate-300">
+        {pathMode === 'journey' ? (
+          <>
+            Текущий режим читает `private.metrika_journey_sessionized_v`, где в одну ленту сведены `http(s)`-страницы и `goal://market.05.ru/...`.
+            Из-за этого граф отражает не только переходы между страницами, но и переходы через цели Метрики вроде `view_item`, `add_to_cart`, `purchase`.
+          </>
+        ) : (
+          <>
+            Новый режим читает `public.metrika_page_path_network`: там в последовательность берутся только реальные page hits из `private.metrika_core_sessionized_v`,
+            query string уже отрезан через `private.extract_path()`, а подписи и группы страниц берутся из `metrika_page_labels` с fallback на `private.default_page_label/default_page_group`.
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {pathMode === 'journey' && (
+          <button
+            type="button"
+            onClick={() => setGraphType('sankey')}
+            className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+              graphType === 'sankey'
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : 'border-slate-700/60 bg-surface text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Route size={15} />
+            Sankey
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setGraphType('force')}
@@ -244,7 +318,6 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
         </button>
       </div>
 
-      {/* Статистика */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="card p-4 border border-primary/10">
@@ -276,21 +349,42 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
         </div>
       )}
 
-      {/* Ползунок */}
+      {pageModeSummary && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="card p-4 border border-primary/10">
+            <div className="text-xs font-bold text-primary/40 uppercase tracking-wider mb-2">Page-only переходы</div>
+            <div className="text-2xl font-black text-primary">{pageModeSummary.transitions.toLocaleString('ru-RU')}</div>
+            <div className="text-xs text-primary/50 mt-1">только между страницами сайта за {days} дн.</div>
+          </div>
+          <div className="card p-4 border border-slate-700/50">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Уникальные страницы</div>
+            <div className="text-2xl font-black text-white">{pageModeSummary.nodeCount.toLocaleString('ru-RU')}</div>
+            <div className="text-xs text-slate-400 mt-1">попали в граф после текущего порога</div>
+          </div>
+          <div className="card p-4 border border-green-500/20">
+            <div className="text-xs font-bold text-green-400/60 uppercase tracking-wider mb-2">Сильнейший путь</div>
+            <div className="text-base font-black text-white truncate">
+              {pageModeSummary.topEdge.source_label} → {pageModeSummary.topEdge.target_label}
+            </div>
+            <div className="text-xs text-primary/50 mt-1">{pageModeSummary.topEdge.transitions.toLocaleString('ru-RU')} переходов</div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4 card p-3 border border-primary/10">
         <Info size={14} className="text-primary/40 flex-shrink-0" />
         <span className="text-xs text-primary/50">Порог:</span>
         <input
           type="range"
           min={5}
-          max={500}
+          max={pathMode === 'pages' ? 300 : 500}
           step={5}
           value={minTransitions}
           onChange={(e) => setMinTransitions(Number(e.target.value))}
           className="flex-1 accent-primary"
         />
         <span className="text-sm font-bold text-primary w-12 text-right">{minTransitions}</span>
-        {graphType === 'sankey' && sankeyData && (
+        {pathMode === 'journey' && graphType === 'sankey' && sankeyData && (
           <span className="text-xs text-primary/40">
             {sankeyData.links.length} связей, {sankeyData.nodes.length} нод
           </span>
@@ -311,7 +405,7 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
             </div>
           }
         >
-          <UserPathForceGraph days={days} edges={pathNetworkData} minTransitions={minTransitions} />
+          <UserPathForceGraph days={days} edges={activeNetworkData} minTransitions={minTransitions} />
         </Suspense>
       ) : graphType === 'd3' ? (
         <Suspense
@@ -322,7 +416,7 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
             </div>
           }
         >
-          <UserPathD3ForceGraph days={days} edges={pathNetworkData} minTransitions={minTransitions} />
+          <UserPathD3ForceGraph days={days} edges={activeNetworkData} minTransitions={minTransitions} />
         </Suspense>
       ) : sankeyData && sankeyData.links.length > 0 ? (
         <div className="card p-4 border border-primary/10" style={{ height: Math.max(500, sankeyData.nodes.length * 50) }}>
@@ -385,8 +479,7 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
         </div>
       )}
 
-      {/* Таблица основных переходов */}
-      {graphType === 'sankey' && sankeyData && sankeyData.links.length > 0 && (
+      {pathMode === 'journey' && graphType === 'sankey' && sankeyData && sankeyData.links.length > 0 && (
         <div className="card p-6 border border-primary/10">
           <h3 className="text-lg font-bold text-primary mb-4">Основные потоки (вперёд по воронке)</h3>
           <div className="overflow-x-auto">
@@ -425,8 +518,7 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
         </div>
       )}
 
-      {/* Обратные потоки */}
-      {graphType === 'sankey' && backFlows.length > 0 && (
+      {pathMode === 'journey' && graphType === 'sankey' && backFlows.length > 0 && (
         <div className="card p-6 border border-red-500/10">
           <h3 className="text-lg font-bold text-red-400 mb-1 flex items-center gap-2">
             <ArrowLeftRight size={18} /> Возвраты назад по воронке
@@ -443,12 +535,12 @@ const UserPathExplorer: React.FC<UserPathExplorerProps> = ({ days }) => {
                 </tr>
               </thead>
               <tbody>
-                {backFlows.slice(0, 15).map((r: any, i: number) => (
+                {backFlows.slice(0, 15).map((row: any, i: number) => (
                   <tr key={i} className="border-b border-red-500/5 hover:bg-red-500/5">
-                    <td className="py-2 px-3">{r.from}</td>
+                    <td className="py-2 px-3">{row.from}</td>
                     <td className="text-center text-red-400/30">←</td>
-                    <td className="py-2 px-3">{r.to}</td>
-                    <td className="py-2 px-3 text-right font-bold text-red-400">{r.transitions.toLocaleString('ru-RU')}</td>
+                    <td className="py-2 px-3">{row.to}</td>
+                    <td className="py-2 px-3 text-right font-bold text-red-400">{row.transitions.toLocaleString('ru-RU')}</td>
                   </tr>
                 ))}
               </tbody>
